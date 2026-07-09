@@ -58,12 +58,14 @@ TEXT = {
         "col_time": "Hora",
         "language": "Idioma",
         "clear_history": "Limpar histórico",
+        "clear_input": "Apagar",
         "export_csv": "Exportar para CSV",
         "export_json": "Exportar para JSON",
         "export_done": "Histórico exportado com sucesso.",
         "export_cancelled": "Exportação cancelada.",
         "export_error": "Erro ao exportar: {err}",
         "unexpected_error": "⚠️ Ocorreu um erro inesperado: {err}",
+        "copied": "📋 {algo} copiado para a área de transferência!",
         "confirm_clear_title": "Limpar histórico?",
         "confirm_clear_body": "Esta ação não pode ser desfeita.",
         "confirm_yes": "Sim, limpar",
@@ -94,12 +96,14 @@ TEXT = {
         "col_time": "Time",
         "language": "Language",
         "clear_history": "Clear History",
+        "clear_input": "Clear",
         "export_csv": "Export CSV",
         "export_json": "Export JSON",
         "export_done": "History exported.",
         "export_cancelled": "Export cancelled.",
         "export_error": "Export error: {err}",
         "unexpected_error": "⚠️ An unexpected error occurred: {err}",
+        "copied": "📋 {algo} copied to clipboard!",
         "confirm_clear_title": "Clear history?",
         "confirm_clear_body": "This action cannot be undone.",
         "confirm_yes": "Yes, clear",
@@ -130,12 +134,14 @@ TEXT = {
         "col_time": "Heure",
         "language": "Langue",
         "clear_history": "Vider l'historique",
+        "clear_input": "Effacer",
         "export_csv": "Exporter en CSV",
         "export_json": "Exporter en JSON",
         "export_done": "Historique exporté.",
         "export_cancelled": "Exportation annulée.",
         "export_error": "Erreur d'exportation : {err}",
         "unexpected_error": "⚠️ Une erreur inattendue s'est produite : {err}",
+        "copied": "📋 {algo} copié dans le presse-papiers !",
         "confirm_clear_title": "Vider l'historique ?",
         "confirm_clear_body": "Cette action est irréversible.",
         "confirm_yes": "Oui, vider",
@@ -166,12 +172,14 @@ TEXT = {
         "col_time": "Hora",
         "language": "Idioma",
         "clear_history": "Borrar historial",
+        "clear_input": "Borrar",
         "export_csv": "Exportar CSV",
         "export_json": "Exportar JSON",
         "export_done": "Historial exportado.",
         "export_cancelled": "Exportación cancelada.",
         "export_error": "Error al exportar: {err}",
         "unexpected_error": "⚠️ Ocurrió un error inesperado: {err}",
+        "copied": "📋 ¡{algo} copiado al portapapeles!",
         "confirm_clear_title": "¿Borrar historial?",
         "confirm_clear_body": "Esta acción no se puede deshacer.",
         "confirm_yes": "Sí, borrar",
@@ -259,10 +267,29 @@ class HashVerifierApp:
 
         # Um campo de hash, apenas leitura, por algoritmo
         self.hash_fields: dict[str, ft.TextField] = {
-            "MD5": ft.TextField(label="MD5", read_only=True, width=460),
-            "SHA-1": ft.TextField(label="SHA-1", read_only=True, width=460),
-            "SHA-256": ft.TextField(label="SHA-256", read_only=True, width=460),
+            "MD5": ft.TextField(label="MD5", read_only=True, width=400),
+            "SHA-1": ft.TextField(label="SHA-1", read_only=True, width=400),
+            "SHA-256": ft.TextField(label="SHA-256", read_only=True, width=400),
         }
+
+        # Um botão de copiar junto a cada campo, para copiar o hash com um
+        # clique (usa page.clipboard, que é um serviço próprio da Page —
+        # não precisa de registo no overlay, ao contrário do FilePicker).
+        self.hash_copy_buttons: dict[str, ft.IconButton] = {
+            algo: ft.IconButton(
+                icon=ft.Icons.COPY,
+                tooltip="Copy",
+                on_click=lambda e, a=algo: self.on_copy_hash(a),
+            )
+            for algo in self.hash_fields
+        }
+        self.hash_rows: list[ft.Row] = [
+            ft.Row(
+                alignment=ft.MainAxisAlignment.CENTER,
+                controls=[self.hash_fields[algo], self.hash_copy_buttons[algo]],
+            )
+            for algo in self.hash_fields
+        ]
 
         self.official_hash_label = ft.Text(
             TEXT[self.lang]["official_hash"], weight=ft.FontWeight.BOLD
@@ -279,6 +306,13 @@ class HashVerifierApp:
             TEXT[self.lang]["waiting"], size=16, weight=ft.FontWeight.BOLD
         )
 
+        # Botão de limpar a aba de Verificação (não mexe no histórico)
+        self.clear_verification_btn = ft.ElevatedButton(
+            TEXT[self.lang]["clear_input"],
+            icon=ft.Icons.DELETE_OUTLINE,
+            on_click=self.on_clear_output_click,  # Esta é a função que limpa os inputs
+        )
+
         # ---------------- Aba "Verificação" ----------------
         self.verification_view = ft.Container(
             padding=20,
@@ -291,13 +325,14 @@ class HashVerifierApp:
                     self.file_size_text,
                     self.progress_bar,
                     self.progress_text,
-                    *self.hash_fields.values(),
+                    *self.hash_rows,
                     ft.Divider(),
                     self.official_hash_label,
                     self.official_hash_field,
                     self.compare_btn,
                     ft.Divider(),
                     self.status_text,
+                    self.clear_verification_btn,
                 ],
             ),
         )
@@ -311,12 +346,6 @@ class HashVerifierApp:
             TEXT[self.lang]["clear_history"],
             icon=ft.Icons.DELETE_OUTLINE,
             on_click=self.on_clear_history_click,
-        )
-        # Criamos o clone para a Verificação (nome diferente!)
-        self.clear_verification_btn = ft.ElevatedButton(
-            "Apagar",  # Ou usa também o sistema de tradução: TEXT[self.lang]["clear_input"]
-            icon=ft.Icons.DELETE_OUTLINE,
-            on_click=self.on_clear_output_click,  # Esta é a função que limpa os inputs
         )
         self.export_csv_btn = ft.ElevatedButton(
             TEXT[self.lang]["export_csv"],
@@ -409,18 +438,21 @@ class HashVerifierApp:
                 controls=[
                     self.header,
                     self.tabs,
-                    # Esta nova linha coloca o botão no final, alinhado à direita
-                    # Esta linha coloca os botões no final, alinhados à direita
-                    ft.Row(
-                        controls=[
-                            self.clear_history_btn,
-                            # Adiciona esta linha aqui!
-                        ],
-                        alignment=ft.MainAxisAlignment.END,
-                    ),
                 ],
             )
         )
+
+        # Agora sim: o FilePicker é registado em segurança e ativado com um
+        # segundo page.update() — isto evita a barra "Unknown control:
+        # FilePicker". (Esta chamada estava comentada e nunca era executada;
+        # sem ela, "Selecionar ficheiro" não funcionava.)
+        # self.page.overlay.append(self.file_picker)
+        self.page.update()
+
+        self.refresh_history()
+
+        # Carrega o histórico persistente (Android: SharedPreferences nativo)
+        self.page.run_task(self.load_history)
 
     def on_clear_history_click(self, e):
         """Limpa o histórico e atualiza a interface."""
@@ -428,17 +460,6 @@ class HashVerifierApp:
         if hasattr(self, "refresh_history"):
             self.refresh_history()
         self.page.update()
-
-        # Agora sim: o FilePicker é registado em segurança e ativado com um
-        # segundo page.update() — isto evita a barra vermelha "Unknown
-        # control: FilePicker".
-        # self.page.overlay.append(self.file_picker)
-        # self.page.update()
-
-        # self.refresh_history()
-
-        # Carrega o histórico persistente (Android: SharedPreferences nativo)
-        # self.page.run_task(self.load_history)
 
     # ------------------------------------------------------------------
     # Persistência (page.shared_preferences)
@@ -458,11 +479,28 @@ class HashVerifierApp:
 
     async def save_history(self):
         try:
-            await self.page.shared_preferences.set(
-                STORAGE_KEY_HISTORY, json.dumps(self.history)
-            )
-        except Exception:
-            pass  # a app continua a funcionar mesmo sem persistência
+            # Filtra ou limpa dados antes de salvar, se necessário
+            # Garante que o que está em self.history é serializável
+            serializable_data = []
+            for item in self.history:
+                # Se o teu item for um dicionário complexo, simplifica-o aqui
+                serializable_data.append(
+                    {
+                        "file": str(item.get("file", "-")),
+                        "algo": str(item.get("algo", "-")),
+                        "match": bool(item.get("match", False)),
+                        "hash": str(item.get("hash", "")),
+                        "time": str(item.get("time", "")),
+                    }
+                )
+
+            # Tenta salvar a versão limpa
+            json_str = json.dumps(serializable_data)
+            await self.page.shared_preferences.set(STORAGE_KEY_HISTORY, json_str)
+
+        except Exception as e:
+            # IMPORTANTE: Isto vai-te mostrar no terminal o erro real!
+            print(f"Erro ao salvar histórico: {e}")
 
     # ------------------------------------------------------------------
     # Seleção de ficheiro + cálculo dos hashes
@@ -612,6 +650,7 @@ class HashVerifierApp:
                     "file": self.selected_file_name or "-",
                     "algo": algo,
                     "match": is_match,
+                    "hash": self.hashes.get(algo, ""),
                     "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 },
             )
@@ -670,6 +709,21 @@ class HashVerifierApp:
             self.status_text.color = ft.Colors.RED
             self.page.update()
 
+    def on_copy_hash(self, algo: str):
+        t = TEXT[self.lang]
+        try:
+            value = self.hashes.get(algo)
+            if not value:
+                return
+            self.page.run_task(self.page.clipboard.set, value)
+            self.status_text.value = t["copied"].format(algo=algo)
+            self.status_text.color = ft.Colors.BLUE_700
+            self.page.update()
+        except Exception as ex:
+            self.status_text.value = t["unexpected_error"].format(err=ex)
+            self.status_text.color = ft.Colors.RED
+            self.page.update()
+
     def on_clear_input_click(self, e):
         # Esta função é muito mais simples que a do Histórico
         # porque não precisa de avisos ou de salvar em ficheiro.
@@ -702,7 +756,21 @@ class HashVerifierApp:
         return buf.getvalue().encode("utf-8")
 
     def _history_to_json_bytes(self) -> bytes:
-        return json.dumps(self.history, ensure_ascii=False, indent=2).encode("utf-8")
+        # "Assinatura digital" de referência: para cada verificação feita,
+        # guardamos o ficheiro, o algoritmo e o HASH CALCULADO (não o
+        # resultado da comparação, que só é válido no momento em que foi
+        # feita). Assim este JSON pode ser reutilizado no futuro como
+        # referência para novas verificações.
+        manifest = [
+            {
+                "file": entry.get("file", "-"),
+                "algo": entry.get("algo", "-"),
+                "hash": entry.get("hash", ""),
+                "time": entry.get("time", "-"),
+            }
+            for entry in self.history
+        ]
+        return json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
 
     async def _export(self, filename: str, content: bytes):
         t = TEXT[self.lang]
@@ -815,23 +883,24 @@ class HashVerifierApp:
     def apply_translations(self):
         t = TEXT[self.lang]
 
-        # Cabeçalho e Abas
+        # 1. Cabeçalho e Abas
         self.page.title = t["title"]
         self.header_title.value = t["title"]
         self.tab_verification_label.value = t["tab_verification"]
         self.tab_history_label.value = t["tab_history"]
 
-        # Botões
-        self.select_file_btn.content = t["select_file"]
-        self.compare_btn.content = t["compare"]
-        self.clear_history_btn.content = t["clear_history"]
-        self.export_csv_btn.content = t["export_csv"]
-        self.export_json_btn.content = t["export_json"]
+        # 2. Botões
+        self.select_file_btn.content = ft.Text(t["select_file"])
+        self.compare_btn.content = ft.Text(t["compare"])
+        self.clear_history_btn.content = ft.Text(t["clear_history"])
+        self.clear_verification_btn.content = ft.Text(t["clear_input"])
+        self.export_csv_btn.content = ft.Text(t["export_csv"])
+        self.export_json_btn.content = ft.Text(t["export_json"])
 
-        # Labels e campos
+        # 3. Labels e campos
         self.official_hash_label.value = t["official_hash"]
 
-        # Textos dinâmicos
+        # 4. Textos dinâmicos e TRADUÇÃO DOS ESTADOS (O PULO DO GATO)
         if self.selected_file_name:
             self.file_name_text.value = f"{t['file_prefix']}{self.selected_file_name}"
         if self.selected_file_size is not None:
@@ -839,7 +908,17 @@ class HashVerifierApp:
                 f"{t['size_prefix']}{human_size(self.selected_file_size)}"
             )
 
-        if not self.official_hash_field.value and not self.hashes:
+        # Lógica para traduzir o status, dependendo do que estiver guardado:
+        if self.status_text.value:
+            # Se o status atual for um dos termos conhecidos, traduzimos para a nova língua
+            current_val = self.status_text.value
+            if current_val in [TEXT["PT"]["match"], TEXT["EN"]["match"]]:
+                self.status_text.value = t["match"]
+            elif current_val in [TEXT["PT"]["no_match"], TEXT["EN"]["no_match"]]:
+                self.status_text.value = t["no_match"]
+            else:
+                self.status_text.value = t["waiting"]
+        else:
             self.status_text.value = t["waiting"]
 
         self.refresh_history()

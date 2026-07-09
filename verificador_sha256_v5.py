@@ -58,6 +58,7 @@ TEXT = {
         "col_time": "Hora",
         "language": "Idioma",
         "clear_history": "Limpar histórico",
+        "clear_input": "Apagar",
         "export_csv": "Exportar para CSV",
         "export_json": "Exportar para JSON",
         "export_done": "Histórico exportado com sucesso.",
@@ -94,6 +95,7 @@ TEXT = {
         "col_time": "Time",
         "language": "Language",
         "clear_history": "Clear History",
+        "clear_input": "Clear",
         "export_csv": "Export CSV",
         "export_json": "Export JSON",
         "export_done": "History exported.",
@@ -130,6 +132,7 @@ TEXT = {
         "col_time": "Heure",
         "language": "Langue",
         "clear_history": "Vider l'historique",
+        "clear_input": "Effacer",
         "export_csv": "Exporter en CSV",
         "export_json": "Exporter en JSON",
         "export_done": "Historique exporté.",
@@ -166,6 +169,7 @@ TEXT = {
         "col_time": "Hora",
         "language": "Idioma",
         "clear_history": "Borrar historial",
+        "clear_input": "Borrar",
         "export_csv": "Exportar CSV",
         "export_json": "Exportar JSON",
         "export_done": "Historial exportado.",
@@ -279,6 +283,13 @@ class HashVerifierApp:
             TEXT[self.lang]["waiting"], size=16, weight=ft.FontWeight.BOLD
         )
 
+        # Botão de limpar a aba de Verificação (não mexe no histórico)
+        self.clear_verification_btn = ft.ElevatedButton(
+            TEXT[self.lang]["clear_input"],
+            icon=ft.Icons.DELETE_OUTLINE,
+            on_click=self.on_clear_output_click,  # Esta é a função que limpa os inputs
+        )
+
         # ---------------- Aba "Verificação" ----------------
         self.verification_view = ft.Container(
             padding=20,
@@ -298,6 +309,7 @@ class HashVerifierApp:
                     self.compare_btn,
                     ft.Divider(),
                     self.status_text,
+                    self.clear_verification_btn,
                 ],
             ),
         )
@@ -311,12 +323,6 @@ class HashVerifierApp:
             TEXT[self.lang]["clear_history"],
             icon=ft.Icons.DELETE_OUTLINE,
             on_click=self.on_clear_history_click,
-        )
-        # Criamos o clone para a Verificação (nome diferente!)
-        self.clear_verification_btn = ft.ElevatedButton(
-            "Apagar",  # Ou usa também o sistema de tradução: TEXT[self.lang]["clear_input"]
-            icon=ft.Icons.DELETE_OUTLINE,
-            on_click=self.on_clear_output_click,  # Esta é a função que limpa os inputs
         )
         self.export_csv_btn = ft.ElevatedButton(
             TEXT[self.lang]["export_csv"],
@@ -409,18 +415,21 @@ class HashVerifierApp:
                 controls=[
                     self.header,
                     self.tabs,
-                    # Esta nova linha coloca o botão no final, alinhado à direita
-                    # Esta linha coloca os botões no final, alinhados à direita
-                    ft.Row(
-                        controls=[
-                            self.clear_history_btn,
-                            # Adiciona esta linha aqui!
-                        ],
-                        alignment=ft.MainAxisAlignment.END,
-                    ),
                 ],
             )
         )
+
+        # Agora sim: o FilePicker é registado em segurança e ativado com um
+        # segundo page.update() — isto evita a barra "Unknown control:
+        # FilePicker". (Esta chamada estava comentada e nunca era executada;
+        # sem ela, "Selecionar ficheiro" não funcionava.)
+        # self.page.overlay.append(self.file_picker)
+        self.page.update()
+
+        self.refresh_history()
+
+        # Carrega o histórico persistente (Android: SharedPreferences nativo)
+        self.page.run_task(self.load_history)
 
     def on_clear_history_click(self, e):
         """Limpa o histórico e atualiza a interface."""
@@ -428,17 +437,6 @@ class HashVerifierApp:
         if hasattr(self, "refresh_history"):
             self.refresh_history()
         self.page.update()
-
-        # Agora sim: o FilePicker é registado em segurança e ativado com um
-        # segundo page.update() — isto evita a barra vermelha "Unknown
-        # control: FilePicker".
-        # self.page.overlay.append(self.file_picker)
-        # self.page.update()
-
-        # self.refresh_history()
-
-        # Carrega o histórico persistente (Android: SharedPreferences nativo)
-        # self.page.run_task(self.load_history)
 
     # ------------------------------------------------------------------
     # Persistência (page.shared_preferences)
@@ -825,6 +823,7 @@ class HashVerifierApp:
         self.select_file_btn.content = t["select_file"]
         self.compare_btn.content = t["compare"]
         self.clear_history_btn.content = t["clear_history"]
+        self.clear_verification_btn.content = t["clear_input"]
         self.export_csv_btn.content = t["export_csv"]
         self.export_json_btn.content = t["export_json"]
 
