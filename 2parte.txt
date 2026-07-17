@@ -1,0 +1,294 @@
+ def _pick_file(self, e):
+        self.file_picker.pick_files(allow_multiple=False, with_data=True)
+        self.page.update()
+
+
+    def _on_file_picked(self, e):
+        if not e.files:
+            return
+        picked = e.files[0]
+        t = TEXT[self.lang]
+
+        self.selected_file_name = picked.name
+        self.selected_file_size = picked.size
+
+        self.file_name_text.value = f"{t['file_prefix']}{picked.name}"
+        self.file_size_text.value = f"{t['size_prefix']}{human_size(picked.size)}"
+        self.status_text.value = ""
+
+        if picked.size > MAX_FILE_SIZE_BYTES:
+            self.status_text.value = t["file_too_large"]
+            self.status_text.color = ft.colors.orange
+            self.page.update()
+            return
+
+        if picked.bytes is None:
+            self.status_text.value = t["no_file"]
+            self.status_text.color = ft.colors.orange
+            self.page.update()
+            return
+
+        self.page.run_task(self._calculate_hashes, picked.bytes, t)
+
+    async def _calculate_hashes(self, data, t):
+        self.progress_bar.visible = True
+        self.progress_text.value = t["reading"]
+        self.page.update()
+
+        md5 = hashlib.md5()
+        sha1 = hashlib.sha1()
+        sha256 = hashlib.sha256()
+
+        total = len(data)
+        chunk = max(65536, total // 100)
+        done = 0
+
+        for i in range(0, total, chunk):
+            part = data[i:i + chunk]
+            md5.update(part)
+            sha1.update(part)
+            sha256.update(part)
+            done += len(part)
+
+            pct = int(done / total * 100)
+            self.progress_bar.value = done / total
+            self.progress_text.value = t["hashing"].format(pct=pct)
+            self.page.update()
+            await asyncio.sleep(0)
+
+        self.hashes = {
+            "MD5": md5.hexdigest(),
+            "SHA-1": sha1.hexdigest(),
+            "SHA-256": sha256.hexdigest(),
+        }
+
+        for a, f in self.hash_fields.items():
+            f.value = self.hashes[a]
+
+        self.progress_bar.visible = False
+        self.progress_text.value = ""
+        self.page.update()
+
+    def _compare_hashes(self, e):
+        t = TEXT[self.lang]
+
+        if not self.hashes:
+            self.status_text.value = t["no_file"]
+            self.status_text.color = ft.colors.orange
+            self.page.update()
+            return
+
+        official = (self.official_hash_field.value or "").strip().lower()
+        if not official:
+            self.status_text.value = t["no_official"]
+            self.status_text.color = ft.colors.orange
+            self.page.update()
+            return
+
+        algo = detect_algorithm(official)
+        if algo is None:
+            self.status_text.value = t["unrecognized"]
+            self.status_text.color = ft.colors.orange
+            self.page.update()
+            return
+
+        calc = self.hashes[algo].lower()
+        match = calc == official
+
+        self.status_text.value = (
+            t["match"].format(algo=algo) if match else t["no_match"].format(algo=algo)
+        )
+        self.status_text.color = ft.colors.green_700 if match else ft.colors.red
+
+        self.history.insert(
+            0,
+            {
+                "file": self.selected_file_name or "-",
+                "algo": algo,
+                "match": match,
+                "hash": self.hashes.get(algo, ""),
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            },
+        )
+
+        self.page.run_task(self._save_history)
+        self._refresh_history()
+        self.page.update()
+
+    def _copy_hash(self, algo):
+        t = TEXT[self.lang]
+        v = self.hashes.get(algo)
+        if not v:
+            return
+
+        # Clipboard na 0.28.3 é síncrono
+        self.page.clipboard.set(v)
+
+        self.status_text.value = t["copied"].format(algo=algo)
+        self.status_text.color = ft.Colors.BLUE  
+        self.page.update()
+
+
+    def _clear_verification(self, e):
+        for f in self.hash_fields.values():
+            f.value = ""
+        self.file_name_text.value = ""
+        self.file_size_text.value = ""
+        self.hashes = {}
+        self.selected_file_name = None
+        self.selected_file_size = None
+        self.page.update()
+
+    async def _load_history(self):
+        raw = await self.page.shared_preferences.get(STORAGE_KEY_HISTORY)
+        if raw:
+            try:
+                self.history = json.loads(raw)
+            except:
+                self.history = []
+        self._refresh_history()
+        self.page.update()
+
+    async def _save_history(self):
+        await self.page.shared_preferences.set(
+            STORAGE_KEY_HISTORY,
+            json.dumps(self.history)
+        )
+
+    def _refresh_history(self):
+        t = TEXT[self.lang]
+        self.history_column.controls.clear()
+
+        if not self.history:
+            self.history_column.controls.append(ft.Text(t["history_empty"], italic=True))
+            return
+
+        self.history_column.controls.append(
+            ft.Row(
+                controls=[
+                    ft.Text(t["col_file"], width=200),
+                    ft.Text("Algo", width=80),
+                    ft.Text(t["col_result"], width=90),
+                    ft.Text(t["col_time"], width=140),
+                ]
+            )
+        )
+        self.history_column.controls.append(ft.Divider())
+
+        for h in self.history:
+            sym = "✅" if h["match"] else "❌"
+            col = ft.colors.green_700 if h["match"] else ft.colors.red
+
+            self.history_column.controls.append(
+                ft.Row(
+                    controls=[
+                        ft.Text(h["file"], width=200),
+                        ft.Text(h["algo"], width=80),
+                        ft.Text(sym, width=90, color=col),
+                        ft.Text(h["time"], width=140),
+                    ]
+                )
+            )
+
+    def _clear_history(self, e):
+        t = TEXT[self.lang]
+
+        def do_clear(ev):
+            self.history = []
+            self._refresh_history()
+            self.page.run_task(self._save_history)
+            self.page.close(dlg)
+            self.page.update()
+
+        def cancel(ev):
+            self.page.close(dlg)
+
+        dlg = ft.AlertDialog(
+            title=ft.Text(t["confirm_clear_title"]),
+            content=ft.Text(t["confirm_clear_body"]),
+            actions=[
+                ft.TextButton(t["confirm_no"], on_click=cancel),
+                ft.TextButton(t["confirm_yes"], on_click=do_clear),
+            ],
+        )
+        self.page.open(dlg)
+
+    def _history_to_csv_bytes(self):
+        t = TEXT[self.lang]
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow([t["col_file"], "Algoritmo", t["col_result"], t["col_time"]])
+        for h in self.history:
+            w.writerow([h["file"], h["algo"], "OK" if h["match"] else "FAIL", h["time"]])
+        return buf.getvalue().encode()
+
+    def _history_to_json_bytes(self):
+        return json.dumps(self.history, ensure_ascii=False, indent=2).encode()
+
+    def _export_csv(self, e):
+        self.page.run_task(self._export_file, "historico_hashes.csv", self._history_to_csv_bytes())
+
+    def _export_json(self, e):
+        self.page.run_task(self._export_file, "historico_hashes.json", self._history_to_json_bytes())
+
+    async def _export_file(self, filename, content):
+        t = TEXT[self.lang]
+        try:
+            path = await self.file_picker.save_file(file_name=filename)
+
+            if path:
+                with open(path, "wb") as f:
+                    f.write(content)
+
+        except Exception as ex:
+            self.status_text.value = t["export_error"].format(err=ex)
+            self.status_text.color = ft.colors.red
+            self.page.update()
+            return
+
+        if path is None:
+            self.status_text.value = t["export_cancelled"]
+            self.status_text.color = ft.colors.grey
+            self.page.update()
+            return
+
+        if self.page.platform_name in ("windows", "macos", "linux"):
+            try:
+                with open(path, "wb") as f:
+                    f.write(content)
+            except Exception as ex:
+                self.status_text.value = t["export_error"].format(err=ex)
+                self.status_text.color = ft.colors.red
+                self.page.update()
+                return
+
+        self.status_text.value = t["export_done"]
+        self.status_text.color = ft.colors.green_700
+        self.page.update()
+
+    def _on_language_change(self, e):
+        self.lang = self.lang_dropdown.value
+        t = TEXT[self.lang]
+
+        self.page.title = t["title"]
+        self.select_file_btn.text = t["select_file"]
+        self.compare_btn.text = t["compare"]
+        self.clear_verification_btn.text = t["clear_input"]
+        self.clear_history_btn.text = t["clear_history"]
+        self.export_csv_btn.text = t["export_csv"]
+        self.export_json_btn.text = t["export_json"]
+        self.official_hash_label.value = t["official_hash"]
+
+        self.tabs.tabs[0].text = t["tab_verification"]
+        self.tabs.tabs[1].text = t["tab_history"]
+
+        self._refresh_history()
+        self.page.update()
+
+
+def main(page: ft.Page):
+    HashVerifierApp(page)
+
+
+if __name__ == "__main__":
+    ft.app(target=main)

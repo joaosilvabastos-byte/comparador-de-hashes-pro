@@ -1,0 +1,656 @@
+import asyncio
+import csv
+import hashlib
+import io
+import json
+from datetime import datetime
+import flet as ft
+
+
+TEXT = {
+    "PT": {
+        "title": "Verificador de Hashes Pro",
+        "tab_verification": "Verificação",
+        "tab_history": "Histórico",
+        "select_file": "Selecionar ficheiro para verificar",
+        "official_hash": "Hash oficial (colar aqui):",
+        "calculated_hash": "Hash calculado:",
+        "compare": "Comparar hashes",
+        "waiting": "A aguardar...",
+        "reading": "A ler o ficheiro...",
+        "hashing": "A calcular hashes... {pct}%",
+        "no_file": "Selecione primeiro um ficheiro.",
+        "no_official": "Cole o hash oficial para comparar.",
+        "unrecognized": "⚠️ Esse texto não parece ser um hash MD5, SHA-1 ou SHA-256 válido.",
+        "match": "✅ Coincide com o {algo} calculado!",
+        "no_match": "❌ NÃO coincide com o {algo} calculado!",
+        "file_prefix": "Ficheiro: ",
+        "size_prefix": "Tamanho: ",
+        "file_too_large": "⚠️ Ficheiro demasiado grande para ser processado em memória neste dispositivo.",
+        "history_empty": "Ainda não existem verificações no histórico.",
+        "col_file": "Ficheiro",
+        "col_result": "Resultado",
+        "col_time": "Hora",
+        "language": "Idioma",
+        "clear_history": "Limpar histórico",
+        "clear_input": "Apagar",
+        "export_csv": "Exportar para CSV",
+        "export_json": "Exportar para JSON",
+        "export_done": "Histórico exportado com sucesso.",
+        "export_cancelled": "Exportação cancelada.",
+        "export_error": "Erro ao exportar: {err}",
+        "unexpected_error": "⚠️ Ocorreu um erro inesperado: {err}",
+        "copied": "📋 {algo} copiado para a área de transferência!",
+        "confirm_clear_title": "Limpar histórico?",
+        "confirm_clear_body": "Esta ação não pode ser desfeita.",
+        "confirm_yes": "Sim, limpar",
+        "confirm_no": "Cancelar",
+    },
+    "EN": {
+        "title": "Hash Verifier Pro",
+        "tab_verification": "Verification",
+        "tab_history": "History",
+        "select_file": "Select File to Verify",
+        "official_hash": "Official Hash (paste here):",
+        "calculated_hash": "Calculated Hash:",
+        "compare": "Compare Hashes",
+        "waiting": "Waiting...",
+        "reading": "Reading file...",
+        "hashing": "Calculating hashes... {pct}%",
+        "no_file": "Please select a file first.",
+        "no_official": "Paste the official hash to compare.",
+        "unrecognized": "⚠️ This text doesn't look like a valid MD5, SHA-1 or SHA-256 hash.",
+        "match": "✅ Matches the calculated {algo}!",
+        "no_match": "❌ Does NOT match the calculated {algo}!",
+        "file_prefix": "File: ",
+        "size_prefix": "Size: ",
+        "file_too_large": "⚠️ File too large to process in memory on this device.",
+        "history_empty": "No verifications in the history yet.",
+        "col_file": "File",
+        "col_result": "Result",
+        "col_time": "Time",
+        "language": "Language",
+        "clear_history": "Clear History",
+        "clear_input": "Clear",
+        "export_csv": "Export CSV",
+        "export_json": "Export JSON",
+        "export_done": "History exported.",
+        "export_cancelled": "Export cancelled.",
+        "export_error": "Export error: {err}",
+        "unexpected_error": "⚠️ An unexpected error occurred: {err}",
+        "copied": "📋 {algo} copied to clipboard!",
+        "confirm_clear_title": "Clear history?",
+        "confirm_clear_body": "This action cannot be undone.",
+        "confirm_yes": "Yes, clear",
+        "confirm_no": "Cancel",
+    },
+    "FR": {
+        "title": "Vérificateur de Hachages Pro",
+        "tab_verification": "Vérification",
+        "tab_history": "Historique",
+        "select_file": "Sélectionner un fichier à vérifier",
+        "official_hash": "Hachage officiel (collez ici) :",
+        "calculated_hash": "Hachage calculé :",
+        "compare": "Comparer les hachages",
+        "waiting": "En attente...",
+        "reading": "Lecture du fichier...",
+        "hashing": "Calcul des hachages... {pct}%",
+        "no_file": "Veuillez d'abord sélectionner un fichier.",
+        "no_official": "Collez le hachage officiel pour comparer.",
+        "unrecognized": "⚠️ Ce texte ne ressemble pas à un hachage MD5, SHA-1 ou SHA-256 valide.",
+        "match": "✅ Correspond au {algo} calculé !",
+        "no_match": "❌ Ne correspond PAS au {algo} calculé !",
+        "file_prefix": "Fichier : ",
+        "size_prefix": "Taille : ",
+        "file_too_large": "⚠️ Fichier trop volumineux pour ce dispositif.",
+        "history_empty": "Aucune vérification dans l'historique.",
+        "col_file": "Fichier",
+        "col_result": "Résultat",
+        "col_time": "Heure",
+        "language": "Langue",
+        "clear_history": "Vider l'historique",
+        "clear_input": "Effacer",
+        "export_csv": "Exporter en CSV",
+        "export_json": "Exporter en JSON",
+        "export_done": "Historique exporté.",
+        "export_cancelled": "Exportation annulée.",
+        "export_error": "Erreur d'exportation : {err}",
+        "unexpected_error": "⚠️ Une erreur inattendue s'est produite : {err}",
+        "copied": "📋 {algo} copié dans le presse-papiers !",
+        "confirm_clear_title": "Vider l'historique ?",
+        "confirm_clear_body": "Cette action est irréversible.",
+        "confirm_yes": "Oui, vider",
+        "confirm_no": "Annuler",
+    },
+    "ES": {
+        "title": "Verificador de Hashes Pro",
+        "tab_verification": "Verificación",
+        "tab_history": "Historial",
+        "select_file": "Seleccionar archivo para verificar",
+        "official_hash": "Hash oficial (pegar aquí):",
+        "calculated_hash": "Hash calculado:",  # <--- ADICIONEI ESTA LINHA QUE FALTAVA
+        "compare": "Comparar hashes",
+        "waiting": "Esperando...",
+        "reading": "Leyendo archivo...",
+        "hashing": "Calculando hashes... {pct}%",
+        "no_file": "Seleccione primero un archivo.",
+        "no_official": "Pegue el hash oficial para comparar.",
+        "unrecognized": "⚠️ Ese texto no parece un hash MD5, SHA-1 o SHA-256 válido.",
+        "match": "✅ ¡Coincide con el {algo} calculado!",
+        "no_match": "❌ ¡NO coincide con el {algo} calculado!",
+        "file_prefix": "Archivo: ",
+        "size_prefix": "Tamaño: ",
+        "file_too_large": "⚠️ Archivo demasiado grande para este dispositivo.",
+        "history_empty": "Todavía no hay verificaciones en el historial.",
+        "col_file": "Archivo",
+        "col_result": "Resultado",
+        "col_time": "Hora",
+        "language": "Idioma",
+        "clear_history": "Borrar historial",
+        "clear_input": "Borrar",
+        "export_csv": "Exportar CSV",
+        "export_json": "Exportar JSON",
+        "export_done": "Historial exportado.",
+        "export_cancelled": "Exportación cancelada.",
+        "export_error": "Error al exportar: {err}",
+        "unexpected_error": "⚠️ Ocurrió un error inesperado: {err}",
+        "copied": "📋 ¡{algo} copiado al portapapeles!",
+        "confirm_clear_title": "¿Borrar historial?",
+        "confirm_clear_body": "Esta acción no se puede deshacer.",
+        "confirm_yes": "Sí, borrar",
+        "confirm_no": "Cancelar",
+    },
+}
+
+
+
+LANGUAGES = ["PT", "EN", "FR", "ES"]
+MAX_FILE_SIZE_BYTES = 300 * 1024 * 1024
+STORAGE_KEY_HISTORY = "hashverifier.history_json"
+
+
+def human_size(num_bytes: int) -> str:
+    size = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+
+def detect_algorithm(h: str):
+    return {32: "MD5", 40: "SHA-1", 64: "SHA-256"}.get(len(h))
+
+
+class HashVerifierApp:
+    def __init__(self, page: ft.Page):
+        self.page = page
+        self.lang = "PT"
+        self.selected_file_name = None
+        self.selected_file_size = None
+        self.hashes = {}
+        self.history = []
+
+        # Configuração da Página
+        self.page.title = TEXT[self.lang]["title"]
+        self.page.padding = 20
+
+        # FILE PICKER
+        self.file_picker = ft.FilePicker(on_result=self._on_file_picked)
+        self.page.overlay.append(self.file_picker)
+
+        # DROPDOWN DE IDIOMAS
+        self.lang_dropdown = ft.Dropdown(
+            value=self.lang,
+            width=140,
+            options=[ft.dropdown.Option(code) for code in LANGUAGES],
+            on_change=self._on_language_change,
+        )
+
+        # BOTÕES
+        self.select_file_btn = ft.ElevatedButton(
+            text=TEXT[self.lang]["select_file"],
+            icon=ft.Icons.UPLOAD_FILE,
+            on_click=lambda _: self.file_picker.pick_files(),
+        )
+        
+        self.compare_btn = ft.ElevatedButton(
+            text=TEXT[self.lang]["compare"],
+            icon=ft.Icons.COMPARE_ARROWS,
+            on_click=self._compare_hashes,
+        )
+
+        self.clear_verification_btn = ft.ElevatedButton(
+            text=TEXT[self.lang]["clear_input"],
+            icon=ft.Icons.DELETE_OUTLINE,
+            on_click=self._clear_verification,
+        )
+
+        self.clear_history_btn = ft.ElevatedButton(
+            text=TEXT[self.lang]["clear_history"],
+            icon=ft.Icons.DELETE_OUTLINE,
+            on_click=self._clear_history,
+        )
+
+        self.export_csv_btn = ft.ElevatedButton(
+            text=TEXT[self.lang]["export_csv"],
+            icon=ft.Icons.TABLE_CHART,
+            on_click=self._export_csv,
+        )
+
+        self.export_json_btn = ft.ElevatedButton(
+            text=TEXT[self.lang]["export_json"],
+            icon=ft.Icons.DATA_OBJECT,
+            on_click=self._export_json,
+        )
+
+        # CAMPOS
+        self.file_name_text = ft.Text("", italic=True)
+        self.file_size_text = ft.Text("", italic=True, size=12)
+        self.progress_bar = ft.ProgressBar(visible=False)
+        self.progress_text = ft.Text("", size=12)
+
+        self.hash_fields = {
+            "MD5": ft.TextField(label="MD5", read_only=True, width=400),
+            "SHA-1": ft.TextField(label="SHA-1", read_only=True, width=400),
+            "SHA-256": ft.TextField(label="SHA-256", read_only=True, width=400),
+        }
+
+        self.hash_copy_buttons = {
+            algo: ft.IconButton(
+                icon=ft.Icons.COPY,
+                on_click=lambda e, a=algo: self._copy_hash(a),
+            )
+            for algo in self.hash_fields
+        }
+
+        self.hash_rows = [
+            ft.Row([self.hash_fields[a], self.hash_copy_buttons[a]])
+            for a in self.hash_fields
+        ]
+
+        self.official_hash_label = ft.Text(TEXT[self.lang]["official_hash"])
+        self.official_hash_field = ft.TextField(width=460)
+        self.status_text = ft.Text(TEXT[self.lang]["waiting"], size=16)
+
+        # VIEW DE VERIFICAÇÃO
+        self.verification_view = ft.Container(
+            padding=20,
+            content=ft.Column(
+                controls=[
+                    self.select_file_btn,
+                    self.file_name_text,
+                    self.file_size_text,
+                    self.progress_bar,
+                    self.progress_text,
+                    *self.hash_rows,
+                    ft.Divider(),
+                    self.official_hash_label,
+                    self.official_hash_field,
+                    self.compare_btn,
+                    ft.Divider(),
+                    self.status_text,
+                    self.clear_verification_btn,
+                ]
+            ),
+        )
+
+       # VIEW DE HISTÓRICO
+        self.history_column = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO)
+        self.history_view = ft.Container(
+            padding=20,
+            content=ft.Column(
+                controls=[
+                    ft.Row(
+                        controls=[
+                            self.export_csv_btn,
+                            self.export_json_btn,
+                            self.clear_history_btn,
+                        ]
+                    ),
+                    ft.Divider(),
+                    self.history_column,
+                ]
+            ),
+        )
+
+        # HEADER
+        self.header = ft.Container(
+            padding=ft.padding.only(16, 14, 16, 14),
+            border_radius=12,
+            gradient=ft.LinearGradient(
+                begin=ft.alignment.top_left,
+                end=ft.alignment.bottom_right,
+                colors=[ft.colors.INDIGO, ft.colors.TEAL],
+            ),
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                controls=[
+                    ft.Row(
+                        controls=[
+                            ft.Icon(ft.Icons.FINGERPRINT, color=ft.colors.WHITE),
+                            ft.Text(TEXT[self.lang]["title"], color=ft.colors.WHITE, size=20, weight="bold"),
+                        ]
+                    ),
+                    self.lang_dropdown,
+                ],
+            ),
+        )
+        self.page.update()
+
+        # TABS
+        self.tabs = ft.Tabs(
+            selected_index=0,
+            expand=True,
+            tabs=[
+                ft.Tab(text=TEXT[self.lang]["tab_verification"], content=self.verification_view),
+                ft.Tab(text=TEXT[self.lang]["tab_history"], content=self.history_view),
+            ],
+        )
+
+        page.add(ft.Column(expand=True, spacing=16, controls=[self.header, self.tabs]))
+
+        # CARREGAR HISTÓRICO
+        page.run_task(self._load_history)
+
+    # FILE PICKER
+    def _pick_file(self, e):
+        self.file_picker.pick_files(allow_multiple=False)
+        self.page.update()
+
+    def _on_file_picked(self, e):
+        if not e.files:
+            return
+
+        picked = e.files[0]
+        t = TEXT[self.lang]
+
+        self.selected_file_name = picked.name
+        self.selected_file_size = picked.size
+
+        self.file_name_text.value = f"{t['file_prefix']}{picked.name}"
+        self.file_size_text.value = f"{t['size_prefix']}{human_size(picked.size)}"
+        self.status_text.value = ""
+
+        if picked.size > MAX_FILE_SIZE_BYTES:
+            self.status_text.value = t["file_too_large"]
+            self.status_text.color = ft.colors.ORANGE
+            self.page.update()
+            return
+
+        if picked.bytes is None:
+            self.status_text.value = t["no_file"]
+            self.status_text.color = ft.colors.ORANGE
+            self.page.update()
+            return
+
+        self.page.run_task(self._calculate_hashes, picked.bytes, t)
+
+    # CALCULAR HASHES
+    async def _calculate_hashes(self, data, t):
+        self.progress_bar.visible = True
+        self.progress_text.value = t["reading"]
+        self.page.update()
+
+        md5 = hashlib.md5()
+        sha1 = hashlib.sha1()
+        sha256 = hashlib.sha256()
+
+        total = len(data)
+        chunk = max(65536, total // 100)
+        done = 0
+
+        for i in range(0, total, chunk):
+            part = data[i:i + chunk]
+            md5.update(part)
+            sha1.update(part)
+            sha256.update(part)
+            done += len(part)
+
+            pct = int(done / total * 100)
+            self.progress_bar.value = done / total
+            self.progress_text.value = t["hashing"].format(pct=pct)
+            self.page.update()
+            await asyncio.sleep(0)
+
+        self.hashes = {
+            "MD5": md5.hexdigest(),
+            "SHA-1": sha1.hexdigest(),
+            "SHA-256": sha256.hexdigest(),
+        }
+
+        # Atualiza os componentes da UI com os novos valores
+        self.md5_field.value = self.hashes["MD5"]
+        self.sha1_field.value = self.hashes["SHA-1"]
+        self.sha256_field.value = self.hashes["SHA-256"]
+        
+        # Esconde a barra de progresso e atualiza o texto final
+        self.progress_bar.visible = False
+        self.progress_text.value = t["done"]
+        self.page.update()
+
+        for a, f in self.hash_fields.items():
+            f.value = self.hashes[a]
+
+        self.progress_bar.visible = False
+        self.progress_text.value = ""
+        self.page.update()
+
+    # COMPARAR HASHES
+    def _compare_hashes(self, e):
+        t = TEXT[self.lang]
+
+        if not self.hashes:
+            self.status_text.value = t["no_file"]
+            self.status_text.color = ft.colors.ORANGE
+            self.page.update()
+            return
+
+        official = (self.official_hash_field.value or "").strip().lower()
+        if not official:
+            self.status_text.value = t["no_official"]
+            self.status_text.color = ft.colors.ORANGE
+            self.page.update()
+            return
+
+        algo = detect_algorithm(official)
+        if algo is None:
+            self.status_text.value = t["unrecognized"]
+            self.status_text.color = ft.colors.ORANGE
+            self.page.update()
+            return
+
+        calc = self.hashes[algo].lower()
+        match = calc == official
+
+        self.status_text.value = (
+            t["match"].format(algo=algo) if match else t["no_match"].format(algo=algo)
+        )
+        self.status_text.color = ft.colors.GREEN if match else ft.colors.RED
+
+        self.history.insert(
+            0,
+            {
+                "file": self.selected_file_name or "-",
+                "algo": algo,
+                "match": match,
+                "hash": self.hashes.get(algo, ""),
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            },
+        )
+
+        self.page.run_task(self._save_history)
+        self._refresh_history()
+        self.page.update()
+
+    # COPIAR HASH
+    def _copy_hash(self, algo):
+        t = TEXT[self.lang]
+        v = self.hashes.get(algo)
+        if not v:
+            return
+
+        self.page.clipboard.set(v)
+
+        self.status_text.value = t["copied"].format(algo=algo)
+        self.status_text.color = ft.colors.BLUE
+        self.page.update()
+
+    # LIMPAR VERIFICAÇÃO
+    def _clear_verification(self, e):
+        for f in self.hash_fields.values():
+            f.value = ""
+        self.file_name_text.value = ""
+        self.file_size_text.value = ""
+        self.hashes = {}
+        self.selected_file_name = None
+        self.selected_file_size = None
+        self.page.update()
+
+    # HISTÓRICO
+    async def _load_history(self):
+        raw = await self.page.shared_preferences.get(STORAGE_KEY_HISTORY)
+        if raw:
+            try:
+                self.history = json.loads(raw)
+            except:
+                self.history = []
+        self._refresh_history()
+        self.page.update()
+
+    async def _save_history(self):
+        await self.page.shared_preferences.set(
+            STORAGE_KEY_HISTORY,
+            json.dumps(self.history)
+        )
+
+    def _refresh_history(self):
+        t = TEXT[self.lang]
+        self.history_column.controls.clear()
+
+        if not self.history:
+            self.history_column.controls.append(ft.Text(t["history_empty"], italic=True))
+            return
+
+        self.history_column.controls.append(
+            ft.Row(
+                controls=[
+                    ft.Text(t["col_file"], width=200),
+                    ft.Text("Algoritmo", width=80),
+                    ft.Text(t["col_result"], width=90),
+                    ft.Text(t["col_time"], width=140),
+                ]
+            )
+        )
+        self.history_column.controls.append(ft.Divider())
+
+        for h in self.history:
+            sym = "✅" if h["match"] else "❌"
+            col = ft.colors.GREEN if h["match"] else ft.colors.RED
+
+            self.history_column.controls.append(
+                ft.Row(
+                    controls=[
+                        ft.Text(h["file"], width=200),
+                        ft.Text(h["algo"], width=80),
+                        ft.Text(sym, width=90, color=col),
+                        ft.Text(h["time"], width=140),
+                    ]
+                )
+            )
+
+    # LIMPAR HISTÓRICO
+    def _clear_history(self, e):
+        t = TEXT[self.lang]
+
+        def do_clear(ev):
+            self.history = []
+            self._refresh_history()
+            self.page.run_task(self._save_history)
+            self.page.close(dlg)
+            self.page.update()
+
+        def cancel(ev):
+            self.page.close(dlg)
+
+        dlg = ft.AlertDialog(
+            title=ft.Text(t["confirm_clear_title"]),
+            content=ft.Text(t["confirm_clear_body"]),
+            actions=[
+                ft.TextButton(t["confirm_no"], on_click=cancel),
+                ft.TextButton(t["confirm_yes"], on_click=do_clear),
+            ],
+        )
+        self.page.open(dlg)
+
+    # EXPORTAÇÃO
+    def _history_to_csv_bytes(self):
+        t = TEXT[self.lang]
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow([t["col_file"], "Algoritmo", t["col_result"], t["col_time"]])
+        for h in self.history:
+            w.writerow([h["file"], h["algo"], "OK" if h["match"] else "FAIL", h["time"]])
+        return buf.getvalue().encode()
+
+    def _history_to_json_bytes(self):
+        return json.dumps(self.history, ensure_ascii=False, indent=2).encode()
+
+    def _export_csv(self, e):
+        self.page.run_task(self._export_file, "historico_hashes.csv", self._history_to_csv_bytes())
+
+    def _export_json(self, e):
+        self.page.run_task(self._export_file, "historico_hashes.json", self._history_to_json_bytes())
+
+    async def _export_file(self, filename, content):
+        t = TEXT[self.lang]
+        try:
+            path = await self.file_picker.save_file(file_name=filename)
+
+            if path:
+                with open(path, "wb") as f:
+                    f.write(content)
+
+        except Exception as ex:
+            self.status_text.value = t["export_error"].format(err=ex)
+            self.status_text.color = ft.colors.RED
+            self.page.update()
+            return
+
+        if path is None:
+            self.status_text.value = t["export_cancelled"]
+            self.status_text.color = ft.colors.GREY
+            self.page.update()
+            return
+
+        self.status_text.value = t["export_done"]
+        self.status_text.color = ft.colors.GREEN
+        self.page.update()
+
+    # MUDAR IDIOMA
+    def _on_language_change(self, e):
+        self.lang = self.lang_dropdown.value
+        t = TEXT[self.lang]
+
+        self.page.title = t["title"]
+        self.select_file_btn.text = t["select_file"]
+        self.compare_btn.text = t["compare"]
+        self.clear_verification_btn.text = t["clear_input"]
+        self.clear_history_btn.text = t["clear_history"]
+        self.export_csv_btn.text = t["export_csv"]
+        self.export_json_btn.text = t["export_json"]
+        self.official_hash_label.value = t["official_hash"]
+
+        self.tabs.tabs[0].text = t["tab_verification"]
+        self.tabs.tabs[1].text = t["tab_history"]
+
+        self._refresh_history()
+        self.page.update()
+
+
+def main(page: ft.Page):
+    HashVerifierApp(page)
+
+
+if __name__ == "__main__":
+    ft.app(target=main)

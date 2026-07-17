@@ -1,0 +1,231 @@
+import asyncio
+import csv
+import hashlib
+import io
+import json
+from datetime import datetime
+import flet as ft
+
+TEXT = {
+    "PT": {
+        "title": "Verificador de Hashes Pro",
+        "tab_verification": "Verificação",
+        "tab_history": "Histórico",
+        "select_file": "Selecionar ficheiro para verificar",
+        "official_hash": "Hash oficial (colar aqui):",
+        "calculated_hash": "Hash calculado:",
+        "compare": "Comparar hashes",
+        "waiting": "A aguardar...",
+        "reading": "A ler o ficheiro...",
+        "hashing": "A calcular hashes... {pct}%",
+        "no_file": "Selecione primeiro um ficheiro.",
+        "no_official": "Cole o hash oficial para comparar.",
+        "unrecognized": "⚠️ Esse texto não parece ser um hash MD5, SHA-1 ou SHA-256 válido.",
+        "match": "✅ Coincide com o {algo} calculado!",
+        "no_match": "❌ NÃO coincide com o {algo} calculado!",
+        "file_prefix": "Ficheiro: ",
+        "size_prefix": "Tamanho: ",
+        "file_too_large": "⚠️ Ficheiro demasiado grande.",
+        "history_empty": "Ainda não existem verificações no histórico.",
+        "col_file": "Ficheiro",
+        "col_result": "Resultado",
+        "col_time": "Hora",
+        "language": "Idioma",
+        "clear_history": "Limpar histórico",
+        "clear_input": "Apagar",
+        "export_csv": "Exportar CSV",
+        "export_json": "Exportar JSON",
+        "export_done": "Histórico exportado.",
+        "export_cancelled": "Exportação cancelada.",
+        "export_error": "Erro ao exportar: {err}",
+        "unexpected_error": "⚠️ Erro inesperado: {err}",
+        "copied": "📋 {algo} copiado!",
+        "confirm_clear_title": "Limpar histórico?",
+        "confirm_clear_body": "Esta ação não pode ser desfeita.",
+        "confirm_yes": "Sim",
+        "confirm_no": "Cancelar",
+    }
+}
+
+LANGUAGES = ["PT", "EN", "FR", "ES"]
+MAX_FILE_SIZE_BYTES = 300 * 1024 * 1024
+STORAGE_KEY_HISTORY = "hashverifier.history_json"
+
+
+def human_size(num_bytes: int) -> str:
+    size = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+
+def detect_algorithm(h: str):
+    return {32: "MD5", 40: "SHA-1", 64: "SHA-256"}.get(len(h))
+
+
+class HashVerifierApp:
+    def __init__(self, page: ft.Page):
+        self.page = page
+        self.lang = "PT"
+        self.selected_file_name = None
+        self.selected_file_size = None
+        self.hashes = {}
+        self.history = []
+
+        page.title = TEXT[self.lang]["title"]
+        page.padding = 20
+
+        self.file_picker = ft.FilePicker(on_result=self._on_file_picked)
+        self.page.overlay.append(self.file_picker)
+        self.lang_dropdown = ft.Dropdown(
+            value=self.lang,
+            width=140,
+            options=[ft.dropdown.Option(code) for code in LANGUAGES],
+            on_change=self._on_language_change,
+        )
+
+        self.select_file_btn = ft.ElevatedButton(
+            text=TEXT[self.lang]["select_file"],
+            icon=ft.Icons.UPLOAD_FILE,
+            on_click=self._pick_file,
+        )
+
+        self.compare_btn = ft.ElevatedButton(
+            text=TEXT[self.lang]["compare"],
+            icon=ft.Icons.COMPARE_ARROWS,
+            on_click=self._compare_hashes,
+        )
+
+        self.clear_verification_btn = ft.ElevatedButton(
+            text=TEXT[self.lang]["clear_input"],
+            icon=ft.Icons.DELETE_OUTLINE,
+            on_click=self._clear_verification,
+        )
+
+        self.clear_history_btn = ft.ElevatedButton(
+            text=TEXT[self.lang]["clear_history"],
+            icon=ft.Icons.DELETE_OUTLINE,
+            on_click=self._clear_history,
+        )
+
+        self.export_csv_btn = ft.ElevatedButton(
+            text=TEXT[self.lang]["export_csv"],
+            icon=ft.Icons.TABLE_CHART,
+            on_click=self._export_csv,
+        )
+
+        self.export_json_btn = ft.ElevatedButton(
+            text=TEXT[self.lang]["export_json"],
+            icon=ft.Icons.DATA_OBJECT,
+            on_click=self._export_json,
+        )
+
+        self.file_name_text = ft.Text("", italic=True)
+        self.file_size_text = ft.Text("", italic=True, size=12)
+        self.progress_bar = ft.ProgressBar(visible=False)
+        self.progress_text = ft.Text("", size=12)
+
+        self.hash_fields = {
+            "MD5": ft.TextField(label="MD5", read_only=True, width=400),
+            "SHA-1": ft.TextField(label="SHA-1", read_only=True, width=400),
+            "SHA-256": ft.TextField(label="SHA-256", read_only=True, width=400),
+        }
+
+        self.hash_copy_buttons = {
+            algo: ft.IconButton(
+                icon=ft.Icons.COPY,
+                on_click=lambda e, a=algo: asyncio.create_task(self._copy_hash(a)),
+            )
+            for algo in self.hash_fields
+        }
+
+        self.hash_rows = [
+            ft.Row([self.hash_fields[a], self.hash_copy_buttons[a]])
+            for a in self.hash_fields
+        ]
+
+        self.official_hash_label = ft.Text(TEXT[self.lang]["official_hash"])
+        self.official_hash_field = ft.TextField(width=460)
+        self.status_text = ft.Text(TEXT[self.lang]["waiting"], size=16)
+
+        self.verification_view = ft.Container(
+            padding=20,
+            content=ft.Column(
+                controls=[
+                    self.select_file_btn,
+                    self.file_name_text,
+                    self.file_size_text,
+                    self.progress_bar,
+                    self.progress_text,
+                    *self.hash_rows,
+                    ft.Divider(),
+                    self.official_hash_label,
+                    self.official_hash_field,
+                    self.compare_btn,
+                    ft.Divider(),
+                    self.status_text,
+                    self.clear_verification_btn,
+                ]
+            ),
+        )
+
+        self.history_column = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO)
+
+        self.history_view = ft.Container(
+            padding=20,
+            content=ft.Column(
+                controls=[
+                    ft.Row(
+                        controls=[
+                            self.export_csv_btn,
+                            self.export_json_btn,
+                            self.clear_history_btn,
+                        ]
+                    ),
+                    ft.Divider(),
+                    self.history_column,
+                ]
+            ),
+        )
+
+        self.header = ft.Container(
+            padding=ft.Padding(16, 14, 16, 14),
+            border_radius=12,
+            gradient=ft.LinearGradient(
+                begin=ft.alignment.top_left,
+                end=ft.alignment.bottom_right,
+                colors=[ft.Colors.INDIGO, ft.Colors.TEAL],
+            ),
+            content=ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                controls=[
+                    ft.Row(
+                        controls=[
+                            ft.Icon(ft.Icons.FINGERPRINT, color=ft.Colors.WHITE),
+                            ft.Text(TEXT[self.lang]["title"], color=ft.Colors.WHITE),
+                        ]
+                    ),
+                    self.lang_dropdown,
+                ],
+            ),
+        )
+
+        self.tabs = ft.Tabs(
+            selected_index=0,
+            expand=True,
+            tabs=[
+                ft.Tab(text=TEXT[self.lang]["tab_verification"], content=self.verification_view),
+                ft.Tab(text=TEXT[self.lang]["tab_history"], content=self.history_view),
+            ],
+        )
+
+        page.add(ft.Column(expand=True, spacing=16, controls=[self.header, self.tabs]))
+
+        page.add(ft.Text(""))  # handshake obrigatório
+        page.overlay.append(self.file_picker)
+        page.update()
+
+
+        page.run_task(self._load_history)
